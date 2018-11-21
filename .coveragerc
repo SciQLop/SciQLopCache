@@ -1,0 +1,3 @@
+[run]
+source = sciqlopcache
+omit = sciqlopcache/test*
