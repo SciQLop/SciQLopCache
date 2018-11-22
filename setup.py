@@ -12,7 +12,7 @@ requires = [
     'pyramid',
     'pyramid_jinja2',
     'pyramid_debugtoolbar',
-    'waitress', 'xmltodict', 'zeep', 'jsonpickle'
+    'waitress', 'xmltodict', 'zeep', 'jsonpickle', 'ddt'
 ]
 
 tests_require = [
