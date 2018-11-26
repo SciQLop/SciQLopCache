@@ -13,7 +13,10 @@ class DateTimeRange:
     stop_time: datetime
 
     def intersect(self, other):
-        return (self.stop_time >= other[0] ) and (self.start_time <= other[1])
+        return ((self.stop_time >= other[0] ) and (self.start_time <= other[1])) or (other[0] <= self.start_time <= other[1]) or (other[0] <= self.stop_time <= other[1])
+
+    def __repr__(self):
+        return str(self.start_time.isoformat() +"->"+ self.stop_time.isoformat())
 
     def __getitem__(self, item):
         return self.start_time if item==0 else self.stop_time
@@ -56,11 +59,6 @@ class CacheEntry:
     def __contains__(self, item: object) -> bool:
         return item in self.dt_range
 
-    def __sub__(self, other):
-        if type(other) is tuple:
-            if other in self:
-                pass
-
 
 class Cache:
     def __init__(self, cache_file=None):
@@ -88,14 +86,17 @@ class Cache:
             self.data[product] = [entry]
 
     def get_missing_ranges(self, parameter_id: str, dt_range: DateTimeRange) -> list:
-        missing_ranges = []
+        miss_ranges = []
         if parameter_id in self:
             entries = self[parameter_id]
-            overlap = [entry for entry in entries if dt_range in entry]
-            missing_ranges = [item for entry in overlap for item in (dt_range - entry.dt_range)]
+            hit_ranges = [entry for entry in entries if dt_range.intersect(entry.dt_range)]
+            if len(hit_ranges):
+                miss_ranges = [item for entry in hit_ranges for item in (dt_range - entry.dt_range)]
+            else:
+                return [dt_range]
         else:
-            return [DateTimeRange]
-        return missing_ranges
+            return [dt_range]
+        return miss_ranges
 
 
 class _CacheEntryTest(unittest.TestCase):
@@ -118,26 +119,77 @@ class _CacheEntryTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             res = (stop_date, start_date) in entry
 
-
+@ddt
 class _CacheTest(unittest.TestCase):
     def setUp(self):
         self.dbfile = str(uuid.uuid4())
         self.cache = Cache(self.dbfile)
-        start_date = datetime(2006, 1, 8, 1, 0, 0)
-        stop_date = start_date + timedelta(hours=1)
+        start_date = datetime(2006, 1, 8, 0, 0, 0)
+        stop_date  = datetime(2006, 1, 8, 1, 0, 0)
         dt_range = DateTimeRange(start_date, stop_date)
         for i in range(10):
             self.cache.add_entry('product1', CacheEntry(dt_range, ""))
             dt_range += timedelta(days=1)
 
+    @data(
+        (
+                'product1',
+                DateTimeRange(datetime(2006, 1, 8, 0, 20, 0), datetime(2006, 1, 8, 0, 40, 0)),
+                []
+        ),
+        (
+                'product not in cache',
+                DateTimeRange(datetime(2006, 1, 8, 0, 20, 0), datetime(2006, 1, 8, 0, 40, 0)),
+                [
+                    DateTimeRange(datetime(2006, 1, 8, 0, 20, 0), datetime(2006, 1, 8, 0, 40, 0))
+                ]
+        ),
+        (
+                'product1',
+                DateTimeRange(datetime(2016, 1, 8, 0, 20, 0), datetime(2016, 1, 8, 0, 40, 0)),
+                [
+                    DateTimeRange(datetime(2016, 1, 8, 0, 20, 0), datetime(2016, 1, 8, 0, 40, 0))
+                ]
+        ),
+        (
+                'product1',
+                DateTimeRange(datetime(2006, 1, 8, 0, 20, 0), datetime(2006, 1, 8, 1, 40, 0)),
+                [
+                    DateTimeRange(datetime(2006, 1, 8, 1, 0, 0), datetime(2006, 1, 8, 1, 40, 0))
+                ]
+        ),
+        (
+                'product1',
+                DateTimeRange(datetime(2006, 1, 7, 23, 20, 0), datetime(2006, 1, 8, 1, 0, 0)),
+                [
+                    DateTimeRange(datetime(2006, 1, 7, 23, 20, 0), datetime(2006, 1, 8, 0, 0, 0))
+                ]
+        ),
+        (
+                'product1',
+                DateTimeRange(datetime(2006, 1, 7, 23, 20, 0), datetime(2006, 1, 8, 1, 40, 0)),
+                [
+                    DateTimeRange(datetime(2006, 1, 7, 23, 20, 0), datetime(2006, 1, 8, 0, 0, 0)),
+                    DateTimeRange(datetime(2006, 1, 8, 1, 0, 0), datetime(2006, 1, 8, 1, 40, 0))
+                ]
+        ),
+        (
+                'product1',
+                DateTimeRange(datetime(2006, 1, 8, 0, 0, 0), datetime(2006, 1, 9, 1, 40, 0)),
+                [
+                    DateTimeRange(datetime(2006, 1, 8, 1, 0, 0), datetime(2006, 1, 9, 0, 0, 0)),
+                    DateTimeRange(datetime(2006, 1, 9, 1, 0, 0), datetime(2006, 1, 9, 1, 40, 0))
+                ]
+        ),
+    )
+    @unpack
+    def test_get_missing_ranges(self, product, dt_range, expected):
+        missing = self.cache.get_missing_ranges(product, dt_range)
+        self.assertEqual(missing, expected)
+
     def tearDown(self):
         del self.cache
         os.remove(self.dbfile)
-
-    def test_get_missing_ranges(self):
-        dt_range = DateTimeRange(datetime(2006, 1, 8, 1, 0, 0), datetime(2006, 1, 8, 2, 0, 0))
-        missing = self.cache.get_missing_ranges('product1', dt_range)
-        print(missing)
 
 
 @ddt
@@ -184,4 +236,19 @@ class _DateTimeRangeTest(unittest.TestCase):
     )
     @unpack
     def test_range_diff(self, range1, range2, expected):
-        self.assertTrue(range1-range2 == expected)
+        self.assertEquals(range1-range2, expected)
+
+    def test_range_substract_timedelta(self):
+        self.assertEquals(
+            DateTimeRange(datetime(2006, 1, 8, 1, 0, 0), datetime(2006, 1, 8, 2, 0, 0))
+            -
+            timedelta(hours=1),
+            DateTimeRange(datetime(2006, 1, 8, 0, 0, 0), datetime(2006, 1, 8, 1, 0, 0)))
+
+    def test_add_with_wrong_type(self):
+        with self.assertRaises(TypeError):
+            DateTimeRange(datetime(2006, 1, 8, 3, 0, 0), datetime(2006, 1, 8, 4, 0, 0)) + 1
+
+    def test_substract_with_wrong_type(self):
+        with self.assertRaises(TypeError):
+            DateTimeRange(datetime(2006, 1, 8, 3, 0, 0), datetime(2006, 1, 8, 4, 0, 0)) - 1
