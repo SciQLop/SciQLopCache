@@ -1,6 +1,8 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import List, Any
+
 import jsonpickle
 import unittest
 from ddt import ddt, data, idata, file_data, unpack
@@ -49,6 +51,11 @@ class DateTimeRange:
         else:
             raise TypeError()
 
+    def __lt__(self, other):
+        return self.start_time < other.start_time
+
+    def __gt__(self, other):
+        return self.start_time > other.start_time
 
 
 @dataclass
@@ -58,6 +65,12 @@ class CacheEntry:
 
     def __contains__(self, item: object) -> bool:
         return item in self.dt_range
+
+    def __lt__(self, other):
+        return self.dt_range.start_time < other.dt_range.start_time
+
+    def __gt__(self, other):
+        return self.dt_range.start_time > other.dt_range.start_time
 
 
 class Cache:
@@ -86,12 +99,22 @@ class Cache:
             self.data[product] = [entry]
 
     def get_missing_ranges(self, parameter_id: str, dt_range: DateTimeRange) -> list:
-        miss_ranges = []
+        miss_ranges: List[DateTimeRange] = []
         if parameter_id in self:
             entries = self[parameter_id]
             hit_ranges = [entry for entry in entries if dt_range.intersect(entry.dt_range)]
-            if len(hit_ranges):
-                miss_ranges = [item for entry in hit_ranges for item in (dt_range - entry.dt_range)]
+            if len(hit_ranges) > 1:
+                hit_ranges.sort()
+                left = (DateTimeRange(dt_range.start_time, hit_ranges[0].dt_range.stop_time) - hit_ranges[0].dt_range)
+                if left:
+                    miss_ranges += left
+                miss_ranges += [DateTimeRange(pair[0].dt_range.stop_time, pair[1].dt_range.start_time)
+                                for pair in zip(hit_ranges[0:-1], hit_ranges[1:])]
+                right = (DateTimeRange(hit_ranges[-1].dt_range.start_time, dt_range.stop_time) - hit_ranges[-1].dt_range)
+                if right:
+                    miss_ranges += right
+            elif len(hit_ranges):
+                miss_ranges += (dt_range - hit_ranges[0].dt_range)
             else:
                 return [dt_range]
         else:
