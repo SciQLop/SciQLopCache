@@ -38,7 +38,7 @@ class DateTimeRange:
     def __sub__(self, other):
         if type(other) is timedelta:
             return DateTimeRange(self.start_time - other, self.stop_time - other)
-        elif type(other) is DateTimeRange:
+        elif hasattr(other,'start_time') and  hasattr(other,'stop_time'):
             res = []
             if not self.intersect(other):
                 res = [DateTimeRange(self.start_time, self.stop_time)]
@@ -48,6 +48,25 @@ class DateTimeRange:
                 if self.stop_time > other[1]:
                     res.append(DateTimeRange(other[1], self.stop_time))
             return res
+        elif type(other) is list:
+            diff = []
+            if len(other) > 1:
+                other.sort()
+                left = (DateTimeRange(self.start_time, other[0].stop_time) - other[0])
+                if left:
+                    diff += left
+                diff += [
+                    DateTimeRange(pair[0].stop_time, pair[1].start_time)
+                    for pair in zip(other[0:-1], other[1:])
+                         ]
+                right = (DateTimeRange(other[-1].start_time, self.stop_time) - other[-1])
+                if right:
+                    diff += right
+            elif len(other):
+                diff += (self - other[0])
+            else:
+                return [self]
+            return diff
         else:
             raise TypeError()
 
@@ -63,14 +82,25 @@ class CacheEntry:
     dt_range: DateTimeRange
     data_file: str
 
+    @property
+    def start_time(self):
+        return self.dt_range.start_time
+
+    @property
+    def stop_time(self):
+        return self.dt_range.stop_time
+
+    def __getitem__(self, item):
+        return self.start_time if item==0 else self.stop_time
+
     def __contains__(self, item: object) -> bool:
         return item in self.dt_range
 
     def __lt__(self, other):
-        return self.dt_range.start_time < other.dt_range.start_time
+        return self.start_time < other.start_time
 
     def __gt__(self, other):
-        return self.dt_range.start_time > other.dt_range.start_time
+        return self.start_time > other.start_time
 
 
 class Cache:
@@ -98,28 +128,13 @@ class Cache:
         else:
             self.data[product] = [entry]
 
-    def get_missing_ranges(self, parameter_id: str, dt_range: DateTimeRange) -> list:
-        miss_ranges: List[DateTimeRange] = []
+    def get_missing_ranges(self, parameter_id: str, dt_range: DateTimeRange) -> List[DateTimeRange]:
         if parameter_id in self:
             entries = self[parameter_id]
             hit_ranges = [entry for entry in entries if dt_range.intersect(entry.dt_range)]
-            if len(hit_ranges) > 1:
-                hit_ranges.sort()
-                left = (DateTimeRange(dt_range.start_time, hit_ranges[0].dt_range.stop_time) - hit_ranges[0].dt_range)
-                if left:
-                    miss_ranges += left
-                miss_ranges += [DateTimeRange(pair[0].dt_range.stop_time, pair[1].dt_range.start_time)
-                                for pair in zip(hit_ranges[0:-1], hit_ranges[1:])]
-                right = (DateTimeRange(hit_ranges[-1].dt_range.start_time, dt_range.stop_time) - hit_ranges[-1].dt_range)
-                if right:
-                    miss_ranges += right
-            elif len(hit_ranges):
-                miss_ranges += (dt_range - hit_ranges[0].dt_range)
-            else:
-                return [dt_range]
+            return dt_range - hit_ranges
         else:
             return [dt_range]
-        return miss_ranges
 
 
 class _CacheEntryTest(unittest.TestCase):
