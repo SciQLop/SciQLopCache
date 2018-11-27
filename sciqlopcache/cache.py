@@ -1,7 +1,7 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Any
+from typing import List, Any, Optional
 
 import jsonpickle
 import unittest
@@ -128,10 +128,16 @@ class Cache:
         else:
             self.data[product] = [entry]
 
-    def get_missing_ranges(self, parameter_id: str, dt_range: DateTimeRange) -> List[DateTimeRange]:
+    def get_entries(self, parameter_id: str, dt_range: DateTimeRange) -> Optional[List[CacheEntry]]:
         if parameter_id in self:
-            entries = self[parameter_id]
-            hit_ranges = [entry for entry in entries if dt_range.intersect(entry.dt_range)]
+            entries = [entry for entry in self[parameter_id] if dt_range.intersect(entry.dt_range)]
+            return entries if len(entries) else None
+        else:
+            return None
+
+    def get_missing_ranges(self, parameter_id: str, dt_range: DateTimeRange) -> List[DateTimeRange]:
+        hit_ranges = self.get_entries(parameter_id, dt_range)
+        if hit_ranges:
             return dt_range - hit_ranges
         else:
             return [dt_range]
@@ -166,7 +172,7 @@ class _CacheTest(unittest.TestCase):
         stop_date  = datetime(2006, 1, 8, 1, 0, 0)
         dt_range = DateTimeRange(start_date, stop_date)
         for i in range(10):
-            self.cache.add_entry('product1', CacheEntry(dt_range, ""))
+            self.cache.add_entry('product1', CacheEntry(dt_range, f"file{i}"))
             dt_range += timedelta(days=1)
 
     @data(
@@ -207,8 +213,8 @@ class _CacheTest(unittest.TestCase):
                 'product1',
                 DateTimeRange(datetime(2006, 1, 7, 23, 20, 0), datetime(2006, 1, 8, 1, 40, 0)),
                 [
-                    DateTimeRange(datetime(2006, 1, 7, 23, 20, 0), datetime(2006, 1, 8, 0, 0, 0)),
-                    DateTimeRange(datetime(2006, 1, 8, 1, 0, 0), datetime(2006, 1, 8, 1, 40, 0))
+                    DateTimeRange(datetime(2006, 1, 7, 23, 20, 0), datetime(2006, 1, 8, 0,  0, 0)),
+                    DateTimeRange(datetime(2006, 1, 8,  1,  0, 0), datetime(2006, 1, 8, 1, 40, 0))
                 ]
         ),
         (
@@ -219,11 +225,54 @@ class _CacheTest(unittest.TestCase):
                     DateTimeRange(datetime(2006, 1, 9, 1, 0, 0), datetime(2006, 1, 9, 1, 40, 0))
                 ]
         ),
+        (
+                'product1',
+                DateTimeRange(datetime(2006, 1, 8, 23, 40, 0), datetime(2006, 1, 12, 1, 40, 0)),
+                [
+                    DateTimeRange(datetime(2006, 1,  8, 23, 40, 0), datetime(2006, 1,  9, 0,  0, 0)),
+                    DateTimeRange(datetime(2006, 1,  9,  1,  0, 0), datetime(2006, 1, 10, 0,  0, 0)),
+                    DateTimeRange(datetime(2006, 1, 10,  1,  0, 0), datetime(2006, 1, 11, 0,  0, 0)),
+                    DateTimeRange(datetime(2006, 1, 11,  1,  0, 0), datetime(2006, 1, 12, 0,  0, 0)),
+                    DateTimeRange(datetime(2006, 1, 12,  1,  0, 0), datetime(2006, 1, 12, 1, 40, 0))
+                ]
+        ),
     )
     @unpack
     def test_get_missing_ranges(self, product, dt_range, expected):
         missing = self.cache.get_missing_ranges(product, dt_range)
         self.assertEqual(missing, expected)
+
+    @data(
+        (
+                'product1',
+                DateTimeRange(datetime(2006, 1, 8, 0, 20, 0), datetime(2006, 1, 8, 0, 40, 0)),
+                [
+                    CacheEntry(DateTimeRange(datetime(2006, 1, 8, 0, 0, 0), datetime(2006, 1, 8, 1, 0, 0)), 'file0')
+                ]
+        ),
+        (
+                'product1',
+                DateTimeRange(datetime(2006, 1, 8, 0, 20, 0), datetime(2006, 1, 9, 0, 40, 0)),
+                [
+                    CacheEntry(DateTimeRange(datetime(2006, 1, 8, 0, 0, 0), datetime(2006, 1, 8, 1, 0, 0)), 'file0'),
+                    CacheEntry(DateTimeRange(datetime(2006, 1, 9, 0, 0, 0), datetime(2006, 1, 9, 1, 0, 0)), 'file1')
+                ]
+        ),
+        (
+                'product not in cache',
+                DateTimeRange(datetime(2006, 1, 8, 0, 20, 0), datetime(2006, 1, 8, 0, 40, 0)),
+                None
+        ),
+        (
+                'product1',
+                DateTimeRange(datetime(2006, 1, 8, 1, 0, 1), datetime(2006, 1, 8, 2, 40, 0)),
+                None
+        )
+    )
+    @unpack
+    def test_get_cache_hit_entries(self, product, dt_range, expected):
+        entry = self.cache.get_entries(product, dt_range)
+        self.assertEqual(entry, expected)
 
     def tearDown(self):
         del self.cache
@@ -269,6 +318,13 @@ class _DateTimeRangeTest(unittest.TestCase):
                 DateTimeRange(datetime(2006, 1, 8, 0, 0, 0), datetime(2006, 1, 8, 3, 0, 0)),
                 [
                     DateTimeRange(datetime(2006, 1, 8, 3, 0, 0), datetime(2006, 1, 8, 4, 0, 0))
+                ]
+        ),
+        (
+                DateTimeRange(datetime(2006, 1, 8, 2, 0, 0), datetime(2006, 1, 8, 4, 0, 0)),
+                DateTimeRange(datetime(2006, 1, 8, 0, 0, 0), datetime(2006, 1, 8, 1, 0, 0)),
+                [
+                    DateTimeRange(datetime(2006, 1, 8, 2, 0, 0), datetime(2006, 1, 8, 4, 0, 0))
                 ]
         )
     )
