@@ -1,7 +1,7 @@
 from pyramid.view import view_config
 from pyramid.response import Response, FileResponse
 import uuid
-
+from . import __amda__
 
 @view_config(route_name='home', renderer='templates/mytemplate.jinja2')
 def my_view(request):
@@ -19,7 +19,7 @@ def auth(request):
 def get_parameter(request):
     res = 4  # random data
     params = []
-    for parameter in ("parameterID", "startTime", "stopTime"):
+    for parameter in ("startTime", "stopTime", "parameterID"):
         value = request.params.get(parameter, None)
         if value is None:
             return Response(
@@ -27,6 +27,7 @@ def get_parameter(request):
                 body="Error: missing {name} parameter".format(name=parameter)
             )
         params.append(value)
+    data = __amda__.get_parameter(*params)
     result_text_file = "==========="
     return Response(
         content_type="text/plain",

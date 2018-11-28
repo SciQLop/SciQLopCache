@@ -12,6 +12,8 @@ class DateTimeRange:
     start_time: datetime
     stop_time: datetime
 
+    __slots__ = ['start_time', 'stop_time']
+
     def intersect(self, other):
         return ((self.stop_time >= other[0]) and (self.start_time <= other[1])) or (
                     other[0] <= self.start_time <= other[1]) or (other[0] <= self.stop_time <= other[1])
@@ -56,7 +58,7 @@ class DateTimeRange:
                     diff += left
                 diff += [
                     DateTimeRange(pair[0].stop_time, pair[1].start_time)
-                    for pair in zip(other[0:-1], other[1:])
+                    for pair in zip(other[0:-1], other[1:]) if pair[0].stop_time != pair[1].start_time
                 ]
                 right = (DateTimeRange(other[-1].start_time, self.stop_time) - other[-1])
                 if right:
@@ -78,8 +80,11 @@ class DateTimeRange:
 
 @dataclass
 class CacheEntry:
+
     dt_range: DateTimeRange
     data_file: str
+
+    __slots__ = ['dt_range', 'data_file']
 
     @property
     def start_time(self):
@@ -103,29 +108,31 @@ class CacheEntry:
 
 
 class Cache:
+    __slots__ = ['cache_file', '_data']
+
     def __init__(self, cache_file=None):
         self.cache_file = cache_file or str(Path.home()) + '/.sciqlopcache/db.json'
         if os.path.exists(self.cache_file):
             with open(self.cache_file, 'r') as f:
-                self.data = jsonpickle.loads(f.read())
+                self._data = jsonpickle.loads(f.read())
         else:
-            self.data = {}
-
-    def __contains__(self, item):
-        return item in self.data
-
-    def __getitem__(self, item):
-        return self.data[item]
+            self._data = {}
 
     def __del__(self):
         with open(self.cache_file, 'w') as f:
-            f.write(jsonpickle.dumps(self.data))
+            f.write(jsonpickle.dumps(self._data))
+
+    def __contains__(self, item):
+        return item in self._data
+
+    def __getitem__(self, item):
+        return self._data[item]
 
     def add_entry(self, product, entry):
-        if product in self.data:
-            self.data[product].append(entry)
+        if product in self._data:
+            self._data[product].append(entry)
         else:
-            self.data[product] = [entry]
+            self._data[product] = [entry]
 
     def get_entries(self, parameter_id: str, dt_range: DateTimeRange) -> Optional[List[CacheEntry]]:
         if parameter_id in self:

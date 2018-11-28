@@ -187,6 +187,7 @@ class AMDATest(unittest.TestCase):
 #
         '''
         result = extract_header(sample_header)
+        self.assertEquals(expected_header, result)
 
     def test_add_to_cache(self):
         pass

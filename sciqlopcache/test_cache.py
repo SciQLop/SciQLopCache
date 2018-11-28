@@ -39,10 +39,18 @@ class _CacheTest(unittest.TestCase):
             self.cache.add_entry('product1', CacheEntry(dt_range, f"file{i}"))
             dt_range += timedelta(days=1)
 
+        self.cache.add_entry('product1', CacheEntry(dt_range + timedelta(days=2), f"file10"))
+        self.cache.add_entry('product1', CacheEntry(dt_range + timedelta(days=2,hours=1), f"file10"))
+
     @data(
         (
                 'product1',
                 DateTimeRange(datetime(2006, 1, 8, 0, 20, 0), datetime(2006, 1, 8, 0, 40, 0)),
+                []
+        ),
+        (
+                'product1',
+                DateTimeRange(datetime(2006, 1, 20, 0, 0, 0), datetime(2006, 1, 20, 2, 0, 0)),
                 []
         ),
         (
@@ -104,7 +112,7 @@ class _CacheTest(unittest.TestCase):
     @unpack
     def test_get_missing_ranges(self, product, dt_range, expected):
         missing = self.cache.get_missing_ranges(product, dt_range)
-        self.assertEqual(missing, expected)
+        self.assertEqual(expected, missing)
 
     @data(
         (
