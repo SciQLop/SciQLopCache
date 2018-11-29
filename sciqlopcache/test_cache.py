@@ -148,7 +148,8 @@ class _CacheTest(unittest.TestCase):
 
     def tearDown(self):
         del self.cache
-        os.remove(self.dbfile)
+        if os.path.exists(self.dbfile):
+            os.remove(self.dbfile)
 
 
 @ddt

@@ -4,8 +4,6 @@ from tempfile import NamedTemporaryFile
 from pyramid.view import view_config
 from pyramid.response import Response, FileResponse
 import uuid
-from . import __amda__
-from .amda import CachedAMDA
 
 @view_config(route_name='home', renderer='templates/mytemplate.jinja2')
 def my_view(request):
@@ -31,7 +29,7 @@ def get_parameter(request):
                 body="Error: missing {name} parameter".format(name=parameter)
             )
         params.append(value)
-    txt = __amda__.get_parameter_as_txt(*params)
+    txt = request.registry.amda.get_parameter_as_txt(*params)
     with NamedTemporaryFile(delete=False, mode='w') as ofile:
         ofile.write(txt)
         return Response(

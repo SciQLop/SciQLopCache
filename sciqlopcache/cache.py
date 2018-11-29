@@ -118,9 +118,12 @@ class Cache:
         else:
             self._data = {}
 
-    def __del__(self):
+    def _save(self):
         with open(self.cache_file, 'w') as f:
             f.write(jsonpickle.dumps(self._data))
+
+    def __del__(self):
+        pass
 
     def __contains__(self, item):
         return item in self._data

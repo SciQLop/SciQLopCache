@@ -111,10 +111,13 @@ class AMDA:
                 with open(inventory_file, 'r') as f:
                     self._unpack_inventory(jsonpickle.loads(f.read()))
 
-    def __del__(self):
+    def _save(self):
         if self.inventory_file:
             with open(self.inventory_file, 'w') as f:
                 f.write(jsonpickle.dumps(self._pack_inventory()))
+
+    def __del__(self):
+        self._save()
 
     def _pack_inventory(self):
         return {
@@ -209,10 +212,14 @@ class CachedAMDA(AMDA):
             self.headers = {}
         pathlib.Path(data_folder).mkdir(parents=True, exist_ok=True)
 
-    def __del__(self):
-        super(CachedAMDA, self).__del__()
+    def _save(self):
+        super(CachedAMDA, self)._save()
         with open(self.headers_files, 'w') as f:
             f.write(jsonpickle.dumps(self.headers))
+        self.cache._save()
+
+    def __del__(self):
+        self._save()
 
     def add_to_cache(self, parameter_id: str, dt_range: DateTimeRange , df: pds.DataFrame):
         fname = self.data_folder + '/' + str(uuid.uuid4())
@@ -253,7 +260,11 @@ class CachedAMDA(AMDA):
             result = super(CachedAMDA, self).get_parameter(start_time, stop_time, parameter_id, method, **kwargs)
 
             self.add_to_cache(parameter_id, DateTimeRange(start_time, stop_time), result)
-
+        if type(result) is pds.DataFrame:
+            try:
+                result = result[start_time:stop_time]
+            except:
+                print('''can't slice dataframe''')
         return result
 
     def get_parameter_as_txt(self, start_time, stop_time, parameter_id, method="REST", **kwargs):
