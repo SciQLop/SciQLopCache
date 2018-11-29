@@ -1,4 +1,5 @@
 import os
+import sys
 from typing import Optional
 
 import jsonpickle
@@ -7,10 +8,14 @@ from zeep import Client
 import pandas as pds
 from datetime import datetime, timedelta
 import xmltodict
-from .cache import Cache,CacheEntry,DateTimeRange
+from .cache import Cache, CacheEntry, DateTimeRange
 import uuid
 import pathlib
 import urllib.request
+
+import logging
+log = logging.getLogger(__name__)
+
 
 class AMDA_soap:
     def __init__(self, server_url="http://amda.irap.omp.eu", WSDL='AMDA/public/wsdl/Methods_AMDA.wsdl', strict=True):
@@ -53,10 +58,11 @@ class AMDA_REST:
         for key, val in kwargs.items():
             url += key + "=" + str(val) + "&"
         r = requests.get(url)
-        print(url)
-        if (r.json()['success']):
-            return r.json()['dataFileURLs']
-        return ''
+        log.debug(f'REST request {url}')
+        if 'success' in r.json():
+            if r.json()['success']:
+                return r.json()['dataFileURLs']
+            return ''
 
     def get_token(self):
         url = self.server_url + "/php/rest/auth.php?"
@@ -70,7 +76,6 @@ class AMDA_REST:
 
 
 class AMDA:
-
     class ObsDataTreeParser:
         @staticmethod
         def node_to_dict(node, **kwargs):
@@ -92,7 +97,8 @@ class AMDA:
         def extrac_all(tree, storage):
             AMDA.ObsDataTreeParser.enter_nodes(tree['dataRoot']['dataCenter'], storage)
 
-    def __init__(self, WSDL='AMDA/public/wsdl/Methods_AMDA.wsdl', server_url="http://amda.irap.omp.eu", inventory_file=None):
+    def __init__(self, WSDL='AMDA/public/wsdl/Methods_AMDA.wsdl', server_url="http://amda.irap.omp.eu",
+                 inventory_file=None):
         self.METHODS = {
             "REST": AMDA_REST(server_url=server_url),
             "SOAP": AMDA_soap(server_url=server_url, WSDL=WSDL)
@@ -121,13 +127,13 @@ class AMDA:
 
     def _pack_inventory(self):
         return {
-            'parameter':    self.parameter,
-            'observatory':  self.observatory,
-            'instrument':   self.instrument,
-            'dataset':      self.dataset,
-            'mission':      self.mission,
+            'parameter': self.parameter,
+            'observatory': self.observatory,
+            'instrument': self.instrument,
+            'dataset': self.dataset,
+            'mission': self.mission,
             'datasetGroup': self.datasetGroup,
-            'component':    self.component
+            'component': self.component
         }
 
     def _unpack_inventory(self, inventory):
@@ -153,16 +159,17 @@ class AMDA:
 
     def _get_header_(self, parameter_id, method="REST", **kwargs):
         r = self.parameter_range(parameter_id)
-        url = self._get_parameter_url(r.start_time, r.start_time+timedelta(minutes=1), parameter_id, method, **kwargs)
-        print(url)
+        url = self._get_parameter_url(r.start_time, r.start_time + timedelta(minutes=1), parameter_id, method, **kwargs)
+        log.debug(f'Header URL {url}')
         with urllib.request.urlopen(url) as data:
             lines = [l for l in data.read().decode().split('\n') if '#' in l]
             return '\n'.join(lines)
 
-    def get_parameter(self, start_time: datetime, stop_time: datetime, parameter_id: str , method: str = "REST", **kwargs) -> Optional[pds.DataFrame]:
+    def get_parameter(self, start_time: datetime, stop_time: datetime, parameter_id: str, method: str = "REST",
+                      **kwargs) -> Optional[pds.DataFrame]:
         url = self._get_parameter_url(start_time, stop_time, parameter_id, method, **kwargs)
         if url is not None:
-            print(url)
+            log.debug(f'Data file URL {url}')
             return pds.read_csv(url, delim_whitespace=True, comment='#', parse_dates=True, infer_datetime_format=True,
                                 index_col=0, header=None)
         return None
@@ -179,16 +186,15 @@ class AMDA:
             dataset_name = self.parameter[parameter_id]['dataset']
             if dataset_name in self.dataset:
                 dataset = self.dataset[dataset_name]
-                print(dataset)
                 return DateTimeRange(
                     datetime.strptime(dataset["dataStart"], '%Y-%m-%dT%H:%M:%SZ'),
-                    datetime.strptime(dataset["dataStop"],  '%Y-%m-%dT%H:%M:%SZ')
+                    datetime.strptime(dataset["dataStop"], '%Y-%m-%dT%H:%M:%SZ')
                 )
 
 
 def extract_header(content: str) -> str:
     lines = content.split('\n')
-    for index,_ in enumerate(lines):
+    for index, _ in enumerate(lines):
         if '# INTERVAL_START' in lines[index]:
             lines[index] = '# INTERVAL_START : {interval_start}'
         if '# INTERVAL_STOP' in lines[index]:
@@ -201,9 +207,9 @@ class CachedAMDA(AMDA):
                  server_url="http://amda.irap.omp.eu",
                  data_folder='/tmp/amdacache'
                  ):
-        super(CachedAMDA, self).__init__(WSDL, server_url, data_folder+'/amda_inventory.json')
+        super(CachedAMDA, self).__init__(WSDL, server_url, data_folder + '/amda_inventory.json')
         self.data_folder = data_folder
-        self.cache = Cache(data_folder+'/db.json')
+        self.cache = Cache(data_folder + '/db.json')
         self.headers_files = data_folder + '/headers.json'
         if os.path.exists(self.headers_files):
             with open(self.headers_files, 'r') as f:
@@ -221,7 +227,7 @@ class CachedAMDA(AMDA):
     def __del__(self):
         self._save()
 
-    def add_to_cache(self, parameter_id: str, dt_range: DateTimeRange , df: pds.DataFrame):
+    def add_to_cache(self, parameter_id: str, dt_range: DateTimeRange, df: pds.DataFrame):
         fname = self.data_folder + '/' + str(uuid.uuid4())
         df.to_pickle(fname)
         self.cache.add_entry(parameter_id, CacheEntry(dt_range, fname))
@@ -243,28 +249,35 @@ class CachedAMDA(AMDA):
         if parameter_id in self.cache:
             entries = self.cache.get_entries(parameter_id, DateTimeRange(start_time, stop_time))
             for e in entries:
+                log.debug(f'''Cache hit! {e.dt_range}''')
                 df = pds.read_pickle(e.data_file)
                 if result is None:
                     result = df
                 else:
-                    result = pds.concat([result, df])
+                    if result.index[0] > df.index[-1]:
+                        result = pds.concat([df, result])
+                    else:
+                        result = pds.concat([result, df])
             miss = self.cache.get_missing_ranges(parameter_id, DateTimeRange(start_time, stop_time))
             for r in miss:
+                log.debug(f'''Missing interval {r}''')
                 df = super(CachedAMDA, self).get_parameter(r.start_time, r.stop_time, parameter_id, method, **kwargs)
                 self.add_to_cache(parameter_id, r, df)
                 if result is None:
                     result = df
                 else:
-                    result = pds.concat([result, df])
+                    if result.index[0] > df.index[-1]:
+                        result = pds.concat([df, result])
+                    else:
+                        result = pds.concat([result, df])
         else:
             result = super(CachedAMDA, self).get_parameter(start_time, stop_time, parameter_id, method, **kwargs)
-
             self.add_to_cache(parameter_id, DateTimeRange(start_time, stop_time), result)
         if type(result) is pds.DataFrame:
             try:
                 result = result[start_time:stop_time]
             except:
-                print('''can't slice dataframe''')
+                log.debug(f'''can't slice dataframe, slice: {start_time}->{stop_time}  | dataframe : {result.index[0]}->{result.index[-1]}''')
         return result
 
     def get_parameter_as_txt(self, start_time, stop_time, parameter_id, method="REST", **kwargs):
@@ -274,10 +287,9 @@ class CachedAMDA(AMDA):
             stop_time = datetime.fromisoformat(stop_time)
         data = self.get_parameter(start_time, stop_time, parameter_id, method, **kwargs)
         header = self.get_header(parameter_id)
-        txt = header.format(interval_start=start_time.isoformat(), interval_stop=stop_time.isoformat())+'\n'
+        txt = header.format(interval_start=start_time.isoformat(), interval_stop=stop_time.isoformat()) + '\n'
         data.index = data.index.format(formatter=lambda x: x.isoformat())
-        txt+=data.to_string(index_names=False, header=False,
-                       formatters={ i: "{:3.3f}".format for i in range(1,data.shape[1])}
-                       )
+        txt += data.to_string(index_names=False, header=False,
+                              formatters={i: "{:.3f}".format for i in range(1, data.shape[1])}
+                              )
         return txt
-
