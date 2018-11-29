@@ -5,7 +5,7 @@ import jsonpickle
 import requests
 from zeep import Client
 import pandas as pds
-from datetime import datetime
+from datetime import datetime, timedelta
 import xmltodict
 from .cache import Cache,CacheEntry,DateTimeRange
 import uuid
@@ -138,7 +138,7 @@ class AMDA:
     def get_token(self, method="SOAP", **kwargs):
         return self.METHODS[method.upper()].get_token()
 
-    def _get_parameter_url(self, start_time, stop_time, parameter_id, method="SOAP", **kwargs):
+    def _get_parameter_url(self, start_time, stop_time, parameter_id, method="REST", **kwargs):
         token = self.get_token()
         if type(start_time) is datetime:
             start_time = start_time.isoformat()
@@ -148,14 +148,15 @@ class AMDA:
             startTime=start_time, stopTime=stop_time, parameterID=parameter_id, token=token, **kwargs)
         return url
 
-    def _get_header_(self, start_time, stop_time, parameter_id, method="SOAP", **kwargs):
-        url = self._get_parameter_url(start_time, stop_time, parameter_id, method, **kwargs)
+    def _get_header_(self, parameter_id, method="REST", **kwargs):
+        r = self.parameter_range(parameter_id)
+        url = self._get_parameter_url(r.start_time, r.start_time+timedelta(minutes=1), parameter_id, method, **kwargs)
+        print(url)
         with urllib.request.urlopen(url) as data:
-            lines = data.readlines()
-            lines = [l for l in lines if '#' in l]
-            return lines
+            lines = [l for l in data.read().decode().split('\n') if '#' in l]
+            return '\n'.join(lines)
 
-    def get_parameter(self, start_time: datetime, stop_time: datetime, parameter_id: str , method: str = "SOAP", **kwargs) -> Optional[pds.DataFrame]:
+    def get_parameter(self, start_time: datetime, stop_time: datetime, parameter_id: str , method: str = "REST", **kwargs) -> Optional[pds.DataFrame]:
         url = self._get_parameter_url(start_time, stop_time, parameter_id, method, **kwargs)
         if url is not None:
             print(url)
@@ -169,6 +170,8 @@ class AMDA:
         return datatree
 
     def parameter_range(self, parameter_id):
+        if not len(self.parameter):
+            self.update_inventory()
         if parameter_id in self.parameter:
             dataset_name = self.parameter[parameter_id]['dataset']
             if dataset_name in self.dataset:
@@ -218,11 +221,17 @@ class CachedAMDA(AMDA):
 
     def get_header(self, parameter_id, method="REST", **kwargs):
         if parameter_id in self.headers:
-            pass
+            return self.headers[parameter_id]
         else:
-            header = super(CachedAMDA, self)._get_header_()
+            header = extract_header(super(CachedAMDA, self)._get_header_(parameter_id, method))
+            self.headers[parameter_id] = header
+            return header
 
     def get_parameter(self, start_time, stop_time, parameter_id, method="REST", **kwargs):
+        if type(start_time) is str:
+            start_time = datetime.fromisoformat(start_time)
+        if type(stop_time) is str:
+            stop_time = datetime.fromisoformat(stop_time)
         result = None
         if parameter_id in self.cache:
             entries = self.cache.get_entries(parameter_id, DateTimeRange(start_time, stop_time))
@@ -246,4 +255,18 @@ class CachedAMDA(AMDA):
             self.add_to_cache(parameter_id, DateTimeRange(start_time, stop_time), result)
 
         return result
+
+    def get_parameter_as_txt(self, start_time, stop_time, parameter_id, method="REST", **kwargs):
+        if type(start_time) is str:
+            start_time = datetime.fromisoformat(start_time)
+        if type(stop_time) is str:
+            stop_time = datetime.fromisoformat(stop_time)
+        data = self.get_parameter(start_time, stop_time, parameter_id, method, **kwargs)
+        header = self.get_header(parameter_id)
+        txt = header.format(interval_start=start_time.isoformat(), interval_stop=stop_time.isoformat())+'\n'
+        data.index = data.index.format(formatter=lambda x: x.isoformat())
+        txt+=data.to_string(index_names=False, header=False,
+                       formatters={ i: "{:3.3f}".format for i in range(1,data.shape[1])}
+                       )
+        return txt
 

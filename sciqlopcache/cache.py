@@ -134,12 +134,13 @@ class Cache:
         else:
             self._data[product] = [entry]
 
-    def get_entries(self, parameter_id: str, dt_range: DateTimeRange) -> Optional[List[CacheEntry]]:
+    def get_entries(self, parameter_id: str, dt_range: DateTimeRange) -> List[CacheEntry]:
         if parameter_id in self:
             entries = [entry for entry in self[parameter_id] if dt_range.intersect(entry.dt_range)]
-            return entries if len(entries) else None
+            #return entries if len(entries) else None
+            return entries
         else:
-            return None
+            return []
 
     def get_missing_ranges(self, parameter_id: str, dt_range: DateTimeRange) -> List[DateTimeRange]:
         hit_ranges = self.get_entries(parameter_id, dt_range)

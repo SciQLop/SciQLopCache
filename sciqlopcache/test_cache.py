@@ -133,12 +133,12 @@ class _CacheTest(unittest.TestCase):
         (
                 'product not in cache',
                 DateTimeRange(datetime(2006, 1, 8, 0, 20, 0), datetime(2006, 1, 8, 0, 40, 0)),
-                None
+                []
         ),
         (
                 'product1',
                 DateTimeRange(datetime(2006, 1, 8, 1, 0, 1), datetime(2006, 1, 8, 2, 40, 0)),
-                None
+                []
         )
     )
     @unpack
