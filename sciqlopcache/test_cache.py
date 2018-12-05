@@ -1,7 +1,8 @@
 import unittest
 from ddt import ddt, data, unpack
 from datetime import datetime, timedelta
-from .cache import CacheEntry, Cache, DateTimeRange
+from .cache import CacheEntry, Cache
+from .datetime_range import DateTimeRange
 import uuid
 import os
 
