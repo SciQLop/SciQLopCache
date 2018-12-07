@@ -19,6 +19,7 @@ def main(global_config, **settings):
     amda_cache_folder = settings.get('amda_cache_folder','/tmp/amdacache')
     log.debug(f'''amda_cache_folder is {amda_cache_folder}''')
     config.registry.amda = CachedAMDA(data_folder=amda_cache_folder)
+    config.registry.tmp_files = []
     retval = config.make_wsgi_app()
     config.registry.amda._save()
     return retval

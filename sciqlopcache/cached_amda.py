@@ -40,8 +40,11 @@ class CachedAMDA(AMDA):
 
     def add_to_cache(self, parameter_id: str, dt_range: DateTimeRange, df: pds.DataFrame):
         fname = self.data_folder + '/' + str(uuid.uuid4())
-        df.to_pickle(fname)
-        self.cache.add_entry(parameter_id, CacheEntry(dt_range, fname))
+        if df is not None:
+            df.to_pickle(fname)
+            self.cache.add_entry(parameter_id, CacheEntry(dt_range, fname))
+        else:
+            self.cache.add_entry(parameter_id, CacheEntry(dt_range, None))
 
     def get_header(self, parameter_id, method="REST", **kwargs):
         if parameter_id in self.headers:
@@ -61,26 +64,28 @@ class CachedAMDA(AMDA):
             entries = self.cache.get_entries(parameter_id, DateTimeRange(start_time, stop_time))
             for e in entries:
                 log.debug(f'''Cache hit! {e.dt_range}''')
-                df = pds.read_pickle(e.data_file)
-                if result is None:
-                    result = df
-                else:
-                    if result.index[0] > df.index[-1]:
-                        result = pds.concat([df, result])
+                if e.data_file is not None:
+                    df = pds.read_pickle(e.data_file)
+                    if result is None:
+                        result = df
                     else:
-                        result = pds.concat([result, df])
+                        if result.index[0] > df.index[-1]:
+                            result = pds.concat([df, result])
+                        else:
+                            result = pds.concat([result, df])
             miss = self.cache.get_missing_ranges(parameter_id, DateTimeRange(start_time, stop_time))
             for r in miss:
                 log.debug(f'''Missing interval {r}''')
                 df = super(CachedAMDA, self).get_parameter(r.start_time, r.stop_time, parameter_id, method, **kwargs)
                 self.add_to_cache(parameter_id, r, df)
-                if result is None:
-                    result = df
-                else:
-                    if result.index[0] > df.index[-1]:
-                        result = pds.concat([df, result])
+                if df is not None:
+                    if result is None:
+                        result = df
                     else:
-                        result = pds.concat([result, df])
+                        if result.index[0] > df.index[-1]:
+                            result = pds.concat([df, result])
+                        else:
+                            result = pds.concat([result, df])
         else:
             result = super(CachedAMDA, self).get_parameter(start_time, stop_time, parameter_id, method, **kwargs)
             self.add_to_cache(parameter_id, DateTimeRange(start_time, stop_time), result)

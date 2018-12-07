@@ -37,6 +37,11 @@ def get_parameter(request):
     log.debug(f'Got data!')
     with NamedTemporaryFile(delete=False, mode='w') as ofile:
         ofile.write(txt)
+        request.registry.tmp_files.append(ofile.name)
+        while len(request.registry.tmp_files)>10:
+            f = request.registry.tmp_files.pop(0)
+            if os.path.exists(f):
+                os.remove(f)
         return Response(
             content_type="text/plain",
             body='{{"success":true,"status":"done","dataFileURLs":"{host}/data/{result}"}}'.format(
