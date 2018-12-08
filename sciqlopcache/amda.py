@@ -184,14 +184,17 @@ class AMDA:
     def parameter_range(self, parameter_id):
         if not len(self.parameter):
             self.update_inventory()
+        dataset_name = None
         if parameter_id in self.parameter:
             dataset_name = self.parameter[parameter_id]['dataset']
-            if dataset_name in self.dataset:
-                dataset = self.dataset[dataset_name]
-                return DateTimeRange(
-                    datetime.strptime(dataset["dataStart"], '%Y-%m-%dT%H:%M:%SZ'),
-                    datetime.strptime(dataset["dataStop"], '%Y-%m-%dT%H:%M:%SZ')
-                )
+        if parameter_id in self.component:
+            dataset_name = self.component[parameter_id]['dataset']
+        if dataset_name in self.dataset:
+            dataset = self.dataset[dataset_name]
+            return DateTimeRange(
+                datetime.strptime(dataset["dataStart"], '%Y-%m-%dT%H:%M:%SZ'),
+                datetime.strptime(dataset["dataStop"], '%Y-%m-%dT%H:%M:%SZ')
+            )
 
 
 def extract_header(content: str) -> str:
